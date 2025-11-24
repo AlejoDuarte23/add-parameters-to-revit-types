@@ -1,0 +1,11 @@
+{
+  "ParameterName": "wombat",
+  "ParameterGroup": "PG_DATA",
+  "Targets": [
+    {
+      "TypeName": "CL_W1",
+      "FamilyName": "Basic Wall",
+      "Value": "95"
+    }
+  ]
+}

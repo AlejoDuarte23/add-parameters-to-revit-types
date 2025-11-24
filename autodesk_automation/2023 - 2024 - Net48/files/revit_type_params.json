@@ -1,0 +1,11 @@
+{
+  "ParameterName": "wombat",
+  "ParameterGroup": "PG_DATA",
+  "Targets": [
+    {
+      "TypeName": "400x400mm",
+      "FamilyName": "CO_01_001_Geheide_prefab_betonpaal",
+      "Value": "95"
+    }
+  ]
+}

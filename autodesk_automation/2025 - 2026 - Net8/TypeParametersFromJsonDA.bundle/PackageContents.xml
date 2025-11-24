@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ApplicationPackage Name="RevitDesignAutomation"
+                    Description="Type Parameters from JSON"
+                    Author="VIKTOR">
+  <CompanyDetails Name="VIKTOR" Url="https://viktor.ai" Email="support@viktor.ai"/>
+  <Components Description="Type Parameters DA app">
+    <RuntimeRequirements SeriesMin="R2025" SeriesMax="R2025" Platform="Revit" OS="Win64"/>
+    <ComponentEntry AppName="TypeParametersFromJsonDA"
+                    Version="1.0.0"
+                    AppDescription="Create Type Parameters from JSON"
+                    ModuleName="./Contents/TypeParametersFromJsonDA8.addin"
+                    LoadOnRevitStartup="True"
+                    LoadOnCommandInvocation="False"/>
+  </Components>
+</ApplicationPackage>

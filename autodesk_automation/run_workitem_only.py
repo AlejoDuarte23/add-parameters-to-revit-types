@@ -36,7 +36,12 @@ def main():
     print(f"✅ Authentication successful. Nickname: {nickname}")
     
     # Define constants - these should match your existing activity
-    activity_name = "TypeParametersActivity"
+    # For other Revit versions, use:
+    # - TypeParametersActivity2023 for Revit 2023
+    # - TypeParametersActivity2024 for Revit 2024
+    # - TypeParametersActivity2025 for Revit 2025
+    # - TypeParametersActivity2026 for Revit 2026
+    activity_name = "TypeParametersActivity2024"
     alias = "dev"
     bucket_key = uuid.uuid4().hex
     
