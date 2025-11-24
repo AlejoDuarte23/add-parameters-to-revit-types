@@ -1,0 +1,2 @@
+viktor==14.26.0
+aps-automation-sdk
