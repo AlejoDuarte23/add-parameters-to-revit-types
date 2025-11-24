@@ -18,6 +18,34 @@ AUTH_URL = f"{APS_BASE_URL}/authentication/v2/token"
 CLIENT_ID = os.environ.get("CLIENT_ID")
 CLIENT_SECRET = os.environ.get("CLIENT_SECRET")
 
+# Revit version to activity/engine mapping
+# Based on the activities created in create_activities_by_revit_version.ipynb
+REVIT_VERSION_CONFIG = {
+    "2023": {
+        "engine": "Autodesk.Revit+2023",
+        "activity_name": "TypeParametersActivity2023",
+        "alias": "dev"
+    },
+    "2024": {
+        "engine": "Autodesk.Revit+2024",
+        "activity_name": "TypeParametersActivity2024",
+        "alias": "dev"
+    },
+    "2025": {
+        "engine": "Autodesk.Revit+2025",
+        "activity_name": "TypeParametersActivity2025",
+        "alias": "dev"
+    },
+    "2026": {
+        "engine": "Autodesk.Revit+2026",
+        "activity_name": "TypeParametersActivity2026",
+        "alias": "dev"
+    }
+}
+
+# Default to 2024 if version cannot be detected
+DEFAULT_REVIT_VERSION = "2024"
+
 
 @lru_cache(maxsize=1)
 def get_token(client_id: str, client_secret: str) -> str:
@@ -43,6 +71,92 @@ def get_token(client_id: str, client_secret: str) -> str:
 def safe_base64_encode(text: str) -> str:
     """Encode text to URL-safe base64 format (used for URNs)."""
     return base64.urlsafe_b64encode(text.encode()).decode().strip("=")
+
+
+def to_md_urn(wip_urn: str) -> str:
+    """Convert WIP URN to Model Derivative URN."""
+    raw = wip_urn.split("?", 1)[0]
+    encoded = base64.urlsafe_b64encode(raw.encode("utf8")).decode("utf8")
+    return encoded.rstrip("=")
+
+
+def get_revit_version_from_manifest(manifest: dict) -> str | None:
+    """Extract Revit version from manifest."""
+    try:
+        derivatives = manifest.get("derivatives", [])
+        if not derivatives:
+            return None
+        
+        for derivative in derivatives:
+            properties = derivative.get("properties", {})
+            doc_info = properties.get("Document Information", {})
+            rvt_version = doc_info.get("RVTVersion")
+            if rvt_version:
+                return str(rvt_version)
+        
+        return None
+    except Exception as e:
+        print(f"Error extracting Revit version from manifest: {e}")
+        return None
+
+
+def fetch_manifest(token: str, object_urn: str) -> dict:
+    """Fetch model derivative manifest."""
+    response = requests.get(
+        f"{MD_BASE_URL}/designdata/{object_urn}/manifest",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def get_revit_version_from_oss_object(token: str, bucket_key: str, object_key: str) -> str | None:
+    """
+    Get Revit version from an OSS object by translating it and checking the manifest.
+    Revit version string (e.g., "2024") or None if not detected
+    """
+    print(f"🔍 Detecting Revit version for object: {object_key}")
+    
+    # Build the OSS object URN
+    oss_object_id = f"urn:adsk.objects:os.object:{bucket_key}/{object_key}"
+    object_urn = safe_base64_encode(oss_object_id)
+    
+    # Start a basic translation job to get the manifest
+    try:
+        start_svf_translation_job(token, object_urn)
+        
+        # Wait a bit for the manifest to be generated
+        import time
+        max_wait = 60
+        interval = 5
+        elapsed = 0
+        
+        while elapsed < max_wait:
+            try:
+                manifest = fetch_manifest(token, object_urn)
+                version = get_revit_version_from_manifest(manifest)
+                
+                if version:
+                    print(f"✅ Detected Revit version: {version}")
+                    return version
+                    
+                # If manifest exists but no version yet, wait a bit more
+                if manifest.get("status") in ["success", "failed"]:
+                    break
+                    
+            except requests.exceptions.RequestException:
+                pass
+            
+            time.sleep(interval)
+            elapsed += interval
+        
+        print("⚠️  Could not detect Revit version from manifest")
+        return None
+        
+    except Exception as e:
+        print(f"⚠️  Error detecting Revit version: {e}")
+        return None
 
 
 def start_svf_translation_job(token: str, object_urn: str) -> Dict[str, Any]:
