@@ -13,7 +13,11 @@ from aps_automation_sdk.classes import (
 )
 from aps_automation_sdk.utils import set_nickname
 from dotenv import load_dotenv
-from app.model_translation import translate_da_result_for_viewing
+from app.model_translation import (
+    translate_da_result_for_viewing,
+    get_revit_version_from_oss_object,
+    REVIT_VERSION_CONFIG
+)
 
 load_dotenv()
 
@@ -155,12 +159,6 @@ class Controller(vkt.Controller):
             token = get_token(client_id, client_secret)
             nickname = set_nickname(token, "myUniqueNickNameHere")
             
-            # Define activity details (must match existing activity)
-            activity_name = "TypeParametersActivity"
-            alias = "dev"
-            activity_full_alias = f"{nickname}.{activity_name}+{alias}"
-            
-            vkt.UserMessage.info(f"📋 Using activity: {activity_full_alias}")
             vkt.progress_message("📤 Uploading input file...", percentage=15)
             
             # Step 3: Generate unique bucket key and use simple object keys
@@ -184,7 +182,31 @@ class Controller(vkt.Controller):
             # Upload the input file to OSS
             input_revit.upload_file_to_oss(file_path=temp_file_path, token=token)
             vkt.UserMessage.info(f"✅ File uploaded to bucket: {bucket_key}")
-            vkt.progress_message("⚙️ Setting up parameters...", percentage=25)
+            vkt.progress_message("🔍 Detecting Revit version...", percentage=25)
+            
+            # Step 4.5: Detect Revit version from the uploaded file
+            vkt.UserMessage.info("🔍 Detecting Revit version from model...")
+            revit_version = get_revit_version_from_oss_object(token, bucket_key, input_object_key)
+            
+            if not revit_version:
+                raise Exception("Could not detect Revit version from the uploaded model. Please ensure the file is a valid Revit model.")
+            
+            if revit_version not in REVIT_VERSION_CONFIG:
+                supported_versions = ", ".join(sorted(REVIT_VERSION_CONFIG.keys()))
+                raise Exception(
+                    f"Revit version {revit_version} is not supported. "
+                    f"Supported versions are: {supported_versions}"
+                )
+            
+            # Get activity configuration for detected version
+            version_config = REVIT_VERSION_CONFIG[revit_version]
+            activity_name = version_config["activity_name"]
+            alias = version_config["alias"]
+            activity_full_alias = f"{nickname}.{activity_name}+{alias}"
+            
+            vkt.UserMessage.info(f"✅ Using Revit {revit_version}")
+            vkt.UserMessage.info(f"📋 Using activity: {activity_full_alias}")
+            vkt.progress_message("⚙️ Setting up parameters...", percentage=35)
             
             # Step 5: Create output parameter
             output_file = ActivityOutputParameter(
@@ -211,7 +233,7 @@ class Controller(vkt.Controller):
             
             # Step 7: Create and execute work item
             vkt.UserMessage.info("🔧 Creating work item...")
-            vkt.progress_message("🔧 Running Design Automation (this may take a few minutes)...", percentage=35)
+            vkt.progress_message("🔧 Running Design Automation (this may take a few minutes)...", percentage=45)
             
             work_item = WorkItem(
                 parameters=[input_revit, output_file, input_json],
