@@ -18,8 +18,10 @@ from app.model_translation import (
     translate_da_result_for_viewing,
     get_revit_version_from_oss_object,
     get_viewables_from_urn,
-    REVIT_VERSION_CONFIG
+    REVIT_VERSION_CONFIG,
+    IFC_EXPORT_VERSION_CONFIG
 )
+from app.ifc_helpers import create_ifc_export_json
 
 import json
 
@@ -31,6 +33,21 @@ CLIENT_SECRET = os.environ.get("CLIENT_SECRET")
 # Storage keys
 STORED_OUTPUT_FILE_KEY = "da_output_file"
 STORED_OUTPUT_URN_KEY = "da_output_urn"
+STORED_IFC_ZIP_KEY = "ifc_export_zip"
+
+
+def get_view_names_options(params, **kwargs):
+    """Get view names from stored viewables for MultiSelectField options."""
+    storage = Storage()
+    try:
+        viewables_file = storage.get("viewables", scope="entity")
+        viewables_json = viewables_file.getvalue()
+        viewables = json.loads(viewables_json)
+        # Return list of view names
+        return [viewable['name'] for viewable in viewables]
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        return []
+
 
 class APSresult(vkt.WebResult):
     def __init__(self, urn: Annotated[str, "bs64 URN from model derivative"] | None = None):
@@ -83,10 +100,26 @@ and the value to set. You can add multiple rows with the same parameter name to 
     targets.value = vkt.TextField("Value")
     
     download_info = vkt.Text("""## Download Updated Model
-After processing your model in the 'Updated Model with Parameters' view, you can download the modified Revit file with the new parameters added.""")
+After processing your model in the 'Updated Model with Parameters' view, you can either:
+- Download the updated Revit model directly, or
+- Select views to export to IFC4 format and download as a ZIP file""")
+    
+    selected_views_for_ifc = vkt.MultiSelectField(
+        "Select view(s) to export to IFC (optional)",
+        options=get_view_names_options,
+        description="Select one or more views to export to IFC format, or leave empty to download Revit model only"
+    )
+    
+    br1 = vkt.LineBreak()
+    
+    download_ifc = vkt.DownloadButton(
+        "Export to IFC (ZIP)",
+        method="export_to_ifc",
+        longpoll=True,
+    )
     
     download_updated = vkt.DownloadButton(
-        "Download updated Revit model",
+        "Download Revit Model",
         method="download_updated_model",
         longpoll=True,
     )
@@ -97,7 +130,7 @@ class Controller(vkt.Controller):
     @staticmethod
     def clear_da_storage(storage: Storage) -> None:
         """Remove stored DA output when there is no valid input file."""
-        for key in (STORED_OUTPUT_FILE_KEY, STORED_OUTPUT_URN_KEY):
+        for key in (STORED_OUTPUT_FILE_KEY, STORED_OUTPUT_URN_KEY, STORED_IFC_ZIP_KEY):
             try:
                 storage.delete(key, scope="entity")
             except FileNotFoundError:
@@ -339,6 +372,182 @@ class Controller(vkt.Controller):
             # Step 10: Return the viewer URN to display in APS viewer
             return APSresult(urn=viewer_urn)
             
+        finally:
+            # Clean up temporary file
+            if temp_file_path and os.path.exists(temp_file_path):
+                os.unlink(temp_file_path)
+
+    def export_to_ifc(self, params, **kwargs):
+        """
+        Export the updated Revit model to IFC format using Design Automation.
+        Reads the stored updated model and exports selected views to IFC.
+        Returns a ZIP file containing the exported IFC files.
+        """
+        storage = Storage()
+
+        # Validate that we have a processed model
+        if params.cad_file is None:
+            self.clear_da_storage(storage)
+            raise vkt.UserError("Please upload a CAD/Revit file first.")
+
+        # Check if updated model exists in storage
+        stored_files = storage.list(scope="entity")
+        if STORED_OUTPUT_FILE_KEY not in stored_files:
+            raise vkt.UserError(
+                "No updated model available. Please process the file in 'Updated Model with Parameters' view first."
+            )
+
+        # Validate view selection
+        if not params.selected_views_for_ifc:
+            raise vkt.UserError("Please select at least one view to export to IFC.")
+
+        client_id = os.environ.get("CLIENT_ID")
+        client_secret = os.environ.get("CLIENT_SECRET")
+
+        if not client_id or not client_secret:
+            raise vkt.UserError("CLIENT_ID and CLIENT_SECRET must be set in the environment variables.")
+
+        vkt.UserMessage.info("Starting IFC Export workflow...")
+        vkt.progress_message("Preparing files...", percentage=5)
+
+        temp_file_path = None
+
+        try:
+            # Step 1: Get the updated model from storage
+            vkt.UserMessage.info("Loading updated model from storage...")
+            stored_file = storage.get(STORED_OUTPUT_FILE_KEY, scope="entity")
+            file_bytes = stored_file.getvalue_binary()
+
+            # Create temporary file from stored bytes
+            with tempfile.NamedTemporaryFile(mode='wb', suffix='.rvt', delete=False) as temp_file:
+                temp_file.write(file_bytes)
+                temp_file_path = temp_file.name
+
+            # Step 2: Authenticate and setup
+            vkt.UserMessage.info("Authenticating with APS...")
+            token = get_token(client_id, client_secret)
+            nickname = set_nickname(token, "myUniqueNickNameHere")
+
+            vkt.progress_message("Uploading model for IFC export...", percentage=15)
+
+            # Step 3: Generate unique bucket and object keys
+            bucket_key = uuid.uuid4().hex
+            input_object_key = "input.rvt"
+            output_object_key = "IFCExport.zip"
+
+            # Step 4: Upload the updated model
+            vkt.UserMessage.info("Uploading updated model for IFC export...")
+            input_revit = ActivityInputParameter(
+                name="rvtFile",
+                localName="input.rvt",
+                verb="get",
+                description="Input Revit model for IFC export",
+                required=True,
+                is_engine_input=True,
+                bucketKey=bucket_key,
+                objectKey=input_object_key,
+            )
+
+            input_revit.upload_file_to_oss(file_path=temp_file_path, token=token)
+            vkt.UserMessage.info(f"✅ Model uploaded to bucket: {bucket_key}")
+            vkt.progress_message("Detecting Revit version...", percentage=25)
+
+            # Step 5: Detect Revit version
+            vkt.UserMessage.info("Detecting Revit version...")
+            revit_version = get_revit_version_from_oss_object(token, bucket_key, input_object_key)
+
+            if not revit_version:
+                raise Exception("Could not detect Revit version from the model.")
+
+            if revit_version not in IFC_EXPORT_VERSION_CONFIG:
+                supported_versions = ", ".join(sorted(IFC_EXPORT_VERSION_CONFIG.keys()))
+                raise Exception(
+                    f"Revit version {revit_version} is not supported for IFC export. "
+                    f"Supported versions are: {supported_versions}"
+                )
+
+            # Get IFC export activity configuration
+            version_config = IFC_EXPORT_VERSION_CONFIG[revit_version]
+            activity_name = version_config["activity_name"]
+            alias = version_config["alias"]
+            activity_full_alias = f"{nickname}.{activity_name}+{alias}"
+
+            vkt.UserMessage.info(f"✅ Using Revit {revit_version}")
+            vkt.UserMessage.info(f"Using IFC export activity: {activity_full_alias}")
+            vkt.progress_message("Preparing IFC export settings...", percentage=35)
+
+            # Step 6: Create IFC export configuration
+            vkt.UserMessage.info(f"Creating IFC export configuration for {len(params.selected_views_for_ifc)} view(s)...")
+            ifc_config = create_ifc_export_json(params.selected_views_for_ifc)
+
+            input_json = ActivityJsonParameter(
+                name="ifcSettings",
+                localName="ifc_settings.json",
+                verb="get",
+                description="IFC Export Settings",
+            )
+            input_json.set_content(ifc_config)
+
+            # Step 7: Create output parameter for ZIP file
+            output_zip = ActivityOutputParameter(
+                name="result",
+                localName="result",
+                verb="put",
+                description="Zipped IFC files",
+                zip=True,
+                bucketKey=bucket_key,
+                objectKey=output_object_key,
+            )
+
+            # Step 8: Create and execute work item
+            vkt.UserMessage.info("Creating IFC export work item...")
+            vkt.progress_message("Running IFC Export (this may take a few minutes)...", percentage=45)
+
+            work_item = WorkItem(
+                parameters=[input_revit, output_zip, input_json],
+                activity_full_alias=activity_full_alias
+            )
+
+            vkt.UserMessage.info("Executing IFC export work item...")
+            status_resp = work_item.execute(token=token, max_wait=600, interval=10)
+            last_status = status_resp.get("status", "")
+
+            vkt.UserMessage.info(f"Work item status: {last_status}")
+
+            if last_status != "success":
+                error_msg = f"IFC export work item failed with status: {last_status}"
+                vkt.UserMessage.info(f"❌ {error_msg}")
+                raise vkt.UserError(error_msg)
+
+            vkt.UserMessage.info("✅ IFC export completed successfully!")
+            vkt.progress_message("Downloading IFC export...", percentage=80)
+
+            # Step 9: Download the ZIP file and store it
+            with tempfile.NamedTemporaryFile(mode="wb", suffix=".zip", delete=False) as zip_temp:
+                zip_temp_path = zip_temp.name
+
+            try:
+                output_zip.download_to(output_path=zip_temp_path, token=token)
+
+                with open(zip_temp_path, "rb") as f:
+                    zip_bytes = f.read()
+
+                zip_file = vkt.File.from_data(zip_bytes)
+                storage.set(STORED_IFC_ZIP_KEY, data=zip_file, scope="entity")
+                vkt.UserMessage.info(f"✅ Stored IFC export ZIP ({len(zip_bytes)} bytes)")
+            finally:
+                if os.path.exists(zip_temp_path):
+                    os.unlink(zip_temp_path)
+
+            vkt.progress_message("✅ IFC export complete!", percentage=100)
+
+            # Step 10: Return the ZIP file for download
+            base_filename = params.cad_file.filename or 'model.rvt'
+            zip_filename = f"IFC_Export_{base_filename.rsplit('.', 1)[0]}.zip"
+            
+            vkt.UserMessage.info(f"✅ IFC export complete! Downloading {zip_filename}")
+            return vkt.DownloadResult(zip_bytes, zip_filename)
+
         finally:
             # Clean up temporary file
             if temp_file_path and os.path.exists(temp_file_path):
