@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ApplicationPackage Name="RevitDesignAutomation"
+                    Description="IFC Export from JSON"
+                    Author="VIKTOR">
+  <CompanyDetails Name="VIKTOR" Url="https://viktor.ai" Email="support@viktor.ai"/>
+  <Components Description="IFC Export DA app">
+    <RuntimeRequirements SeriesMin="R2024" SeriesMax="R2024" Platform="Revit" OS="Win64"/>
+    <ComponentEntry AppName="IfcExportDA"
+                    Version="1.0.0"
+                    AppDescription="Export IFC from JSON parameters"
+                    ModuleName="./Contents/IfcExportDA.addin"
+                    LoadOnRevitStartup="True"
+                    LoadOnCommandInvocation="False"/>
+  </Components>
+</ApplicationPackage>
