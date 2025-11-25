@@ -17,8 +17,11 @@ from viktor.core import Storage
 from app.model_translation import (
     translate_da_result_for_viewing,
     get_revit_version_from_oss_object,
+    get_viewables_from_urn,
     REVIT_VERSION_CONFIG
 )
+
+import json
 
 load_dotenv()
 
@@ -32,9 +35,19 @@ STORED_OUTPUT_URN_KEY = "da_output_urn"
 class APSresult(vkt.WebResult):
     def __init__(self, urn: Annotated[str, "bs64 URN from model derivative"] | None = None):
         token = get_token(CLIENT_ID, CLIENT_SECRET)
-        html = (Path(__file__).parent / 'ApsViewer.html').read_text()
+        
+        # Get viewables from the translated model
+        viewables = []
+        if urn:
+            try:
+                viewables = get_viewables_from_urn(urn)
+            except Exception as e:
+                print(f"Warning: Could not fetch viewables: {e}")
+        
+        html = (Path(__file__).parent / 'ViewableViewer.html').read_text()
         html = html.replace('APS_TOKEN_PLACEHOLDER', token)
         html = html.replace('URN_PLACEHOLDER', urn)
+        html = html.replace('VIEWABLES_PLACEHOLDER', json.dumps(viewables))
         super().__init__(html=html)
         
 
