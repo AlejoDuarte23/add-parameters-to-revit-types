@@ -302,12 +302,6 @@ def translate_da_result_for_viewing(bucket_key: str, output_object_key: str) -> 
 def get_translation_info(object_urn: str) -> Dict[str, Any]:
     """
     Get detailed information about a translated model.
-    
-    Args:
-        object_urn: URN of the translated object
-        
-    Returns:
-        Dictionary with translation information
     """
     token = get_token(CLIENT_ID, CLIENT_SECRET)
     
@@ -342,14 +336,55 @@ def get_translation_info(object_urn: str) -> Dict[str, Any]:
     return info
 
 
-# Integration function to be called from the controller
+def get_viewables_from_urn(object_urn: str) -> list[Dict[str, Any]]:
+    """
+    Get available viewables (views) from a translated model.
+    """
+    token = get_token(CLIENT_ID, CLIENT_SECRET)
+    
+    response = requests.get(
+        f"{MD_BASE_URL}/designdata/{object_urn}/manifest",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30
+    )
+    response.raise_for_status()
+    
+    manifest = response.json()
+    viewables = []
+    
+    def extract_viewables(children: list, parent_name: str = ""):
+        """Recursively extract viewables from manifest children."""
+        for child in children:
+            role = child.get("role", "")
+            guid = child.get("guid", "")
+            name = child.get("name", "Unnamed View")
+            
+            # Viewables typically have role '3d' or '2d'
+            if role in ["3d", "2d"] and guid:
+                viewables.append({
+                    "guid": guid,
+                    "name": name,
+                    "role": role
+                })
+            
+            # Recurse into nested children
+            if "children" in child:
+                extract_viewables(child["children"], name)
+    
+    # Process derivatives
+    derivatives = manifest.get("derivatives", [])
+    for derivative in derivatives:
+        children = derivative.get("children", [])
+        extract_viewables(children)
+    
+    print(f"Found {len(viewables)} viewable(s) in manifest")
+    return viewables
+
+
 def translate_and_prepare_for_viewing(da_workflow_result: Dict[str, Any]) -> str:
     """
     Integration function to translate Design Automation results for viewing.
     """
-    print("\n🚀 PREPARING DA RESULT FOR VIEWING")
-    print("=" * 50)
-    
     # Extract information from DA workflow result
     workitem_result = da_workflow_result.get("workitem_result", {})
     
@@ -362,11 +397,7 @@ def translate_and_prepare_for_viewing(da_workflow_result: Dict[str, Any]) -> str
     if not bucket_key or not output_object_key:
         raise Exception("Missing bucket_key or output_object_key in DA workflow result")
     
-    print(f"📁 Bucket: {bucket_key}")
-    print(f"📄 Output File: {output_object_key}")
-    
     # Start translation
     viewer_urn = translate_da_result_for_viewing(bucket_key, output_object_key)
     
-    print(f"✨ Translation complete! Viewer URN: {viewer_urn}")
     return viewer_urn

@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>APS Viewer</title>
+  <link rel="stylesheet"
+        href="https://developer.api.autodesk.com/modelderivative/v2/viewers/7.*/style.min.css"
+        type="text/css">
+  <script src="https://developer.api.autodesk.com/modelderivative/v2/viewers/7.*/viewer3D.min.js"></script>
+  <style>
+    html, body, #apsViewerDiv { width: 100%; height: 100%; margin: 0; }
+    #viewSelector {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 100;
+      background: rgba(255, 255, 255, 0.95);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font: 13px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      border: 1px solid #e0e0e0;
+    }
+    #viewSelector label {
+      color: #1a73e8;
+      margin-right: 8px;
+      font-weight: 600;
+    }
+    #viewDropdown {
+      padding: 6px 10px;
+      border: 1px solid #d0d0d0;
+      border-radius: 4px;
+      background: #fff;
+      color: #333;
+      font-size: 13px;
+      min-width: 200px;
+      cursor: pointer;
+    }
+    #viewDropdown:hover {
+      border-color: #1a73e8;
+    }
+    #viewDropdown:focus {
+      outline: none;
+      border-color: #1a73e8;
+      box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.2);
+    }
+  </style>
+</head>
+<body>
+  <div id="apsViewerDiv"></div>
+  <div id="viewSelector">
+    <label for="viewDropdown">View:</label>
+    <select id="viewDropdown">
+      <option value="">Loading views...</option>
+    </select>
+  </div>
+
+  <script>
+    var ACCESS_TOKEN = 'APS_TOKEN_PLACEHOLDER';
+    var DOCUMENT_URN = 'urn:URN_PLACEHOLDER';
+    var VIEWABLES = VIEWABLES_PLACEHOLDER;
+
+    var viewer = null;
+    var loadedDocument = null;
+
+    // Avoid Mixpanel/localStorage in sandboxed iframes
+    try { Autodesk.Viewing.Private.analytics.optOut(); } catch (e) { /* silent */ }
+
+    // Populate dropdown with viewables
+    function populateViewDropdown() {
+      var dropdown = document.getElementById('viewDropdown');
+      dropdown.innerHTML = '';
+
+      // Add default option first (uses URN default geometry)
+      var defaultOption = document.createElement('option');
+      defaultOption.value = '';
+      defaultOption.textContent = 'Default View';
+      defaultOption.selected = true;
+      dropdown.appendChild(defaultOption);
+
+      // Add other viewables if available
+      if (VIEWABLES && VIEWABLES.length > 0) {
+        VIEWABLES.forEach(function(viewable) {
+          var option = document.createElement('option');
+          option.value = viewable.guid;
+          option.textContent = viewable.name + ' (' + viewable.role + ')';
+          dropdown.appendChild(option);
+        });
+      }
+    }
+
+    // Load a specific view by GUID
+    function loadViewByGuid(guid) {
+      if (!loadedDocument || !viewer) return;
+
+      var root = loadedDocument.getRoot();
+      var node = null;
+
+      if (guid) {
+        node = root.findByGuid(guid);
+      }
+
+      // Always fall back to default geometry if no guid or not found
+      if (!node) {
+        node = root.getDefaultGeometry();
+      }
+
+      if (node) {
+        viewer.loadDocumentNode(loadedDocument, node, { keepCurrentModels: false })
+          .then(function() {
+            console.log('View loaded successfully:', guid || 'default');
+          })
+          .catch(function(e) {
+            console.error('Error loading view:', e);
+          });
+      }
+    }
+
+    // Initialize viewer
+    Autodesk.Viewing.Initializer(
+      { 
+        env: 'AutodeskProduction2', 
+        api: 'streamingV2', 
+        accessToken: ACCESS_TOKEN 
+      },
+      function () {
+        Autodesk.Viewing.Document.load(
+          DOCUMENT_URN,
+          function onSuccess(doc) {
+            loadedDocument = doc;
+
+            var container = document.getElementById('apsViewerDiv');
+            viewer = new Autodesk.Viewing.GuiViewer3D(container);
+            viewer.start();
+
+            // Populate dropdown
+            populateViewDropdown();
+
+            // Load default view (empty guid = default geometry)
+            loadViewByGuid('');
+
+            // Set up dropdown change handler
+            document.getElementById('viewDropdown').addEventListener('change', function(e) {
+              loadViewByGuid(e.target.value);
+            });
+          },
+          function onFailure(code, message) {
+            console.error('Document load failed:', code, message);
+          }
+        );
+      }
+    );
+  </script>
+</body>
+</html>
