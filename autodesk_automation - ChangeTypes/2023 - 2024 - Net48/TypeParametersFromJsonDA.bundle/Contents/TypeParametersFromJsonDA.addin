@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<RevitAddIns>
+  <AddIn Type="DBApplication">
+    <Name>TypeParametersFromJsonDA</Name>
+    <Assembly>TypeParametersFromJsonDA.dll</Assembly>
+    <AddInId>9f47b1c9-ff59-4f6c-b2b8-1d3d2a7d9f11</AddInId>
+    <FullClassName>TypeParametersFromJsonDA.App</FullClassName>
+    <VendorId>ACME</VendorId>
+    <VendorDescription>Type Parameters from JSON for design automation</VendorDescription>
+  </AddIn>
+</RevitAddIns>

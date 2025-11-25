@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<RevitAddIns>
+  <AddIn Type="DBApplication">
+    <Name>IfcExportDA</Name>
+    <Assembly>IfcExportDA.dll</Assembly>
+    <AddInId>8A2E0C5C-5E4A-4C8B-9E6B-2C7A9E2B1F11</AddInId>
+    <FullClassName>IfcExportDA.App</FullClassName>
+    <VendorId>ACME</VendorId>
+    <VendorDescription>IFC export for design automation</VendorDescription>
+  </AddIn>
+</RevitAddIns>

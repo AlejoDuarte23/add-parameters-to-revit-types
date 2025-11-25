@@ -43,6 +43,31 @@ REVIT_VERSION_CONFIG = {
     }
 }
 
+# IFC Export version to activity/engine mapping
+# Based on the activities created in autodesk_automation - ExportIFC/create_activities_by_revit_version.ipynb
+IFC_EXPORT_VERSION_CONFIG = {
+    "2023": {
+        "engine": "Autodesk.Revit+2023",
+        "activity_name": "RevitIfcExportAppActivity2023",
+        "alias": "prod"
+    },
+    "2024": {
+        "engine": "Autodesk.Revit+2024",
+        "activity_name": "RevitIfcExportAppActivity2024",
+        "alias": "prod"
+    },
+    "2025": {
+        "engine": "Autodesk.Revit+2025",
+        "activity_name": "RevitIfcExportAppActivity2025",
+        "alias": "prod"
+    },
+    "2026": {
+        "engine": "Autodesk.Revit+2026",
+        "activity_name": "RevitIfcExportAppActivity2026",
+        "alias": "prod"
+    }
+}
+
 # Default to 2024 if version cannot be detected
 DEFAULT_REVIT_VERSION = "2024"
 
@@ -336,7 +361,7 @@ def get_translation_info(object_urn: str) -> Dict[str, Any]:
     return info
 
 
-def get_viewables_from_urn(object_urn: str) -> list[Dict[str, Any]]:
+def get_viewables_from_urn(object_urn: str, store: bool = True) -> list[Dict[str, Any]]:
     """
     Get available viewables (views) from a translated model.
     """
@@ -378,6 +403,26 @@ def get_viewables_from_urn(object_urn: str) -> list[Dict[str, Any]]:
         extract_viewables(children)
     
     print(f"Found {len(viewables)} viewable(s) in manifest")
+    
+    # Store viewables in Viktor storage if requested
+    if store and viewables:
+        try:
+            from viktor.core import Storage
+            import json
+            
+            storage = Storage()
+            viewables_file = vkt.File.from_data(json.dumps(viewables))
+            storage.set("viewables", data=viewables_file, scope="entity")
+            
+            urn_file = vkt.File.from_data(object_urn)
+            storage.set("viewer_urn", data=urn_file, scope="entity")
+            
+            vkt.UserMessage.info(f"💾 Stored {len(viewables)} viewable(s) in memory")
+            view_names = [v['name'] for v in viewables]
+            print(f"💾 Stored viewables: {view_names}")
+        except Exception as e:
+            print(f"Warning: Could not store viewables: {e}")
+    
     return viewables
 
 
